@@ -1,0 +1,320 @@
+// The C entry points of libnetcdf, one novo-lang declaration each.
+//
+// Every call answers a status: 0 is `NC_NOERR` and every other value is
+// negative.  The status is a C `int`, which is 32 bits wide, so write
+// `as i32` before comparing it with a negative number.
+// `nc_strerror` turns a status into a sentence.
+//
+// A dataset, a dimension, a variable and a datatype are each named by a
+// C `int` as well: `ncid`, `dimid`, `varid` and `nc_type`.  Each of them
+// is small and positive, so it crosses as an `Int` unchanged.  The one
+// negative one a program passes is -1, `NC_GLOBAL`, which is the
+// variable a file's own attributes hang on.
+//
+// An out-parameter is the address of a slot the caller owns.  A slot
+// for a C `int` is four bytes, and `ptr.alloc_word` gives an eight-byte
+// slot that is zeroed, so `ptr.read_word` reads the four-byte answer
+// back.  A slot for a `size_t` is eight bytes and needs no such care.
+//
+// A data buffer is an address and nothing else: the library knows how
+// many elements to move from the variable's own shape, and how wide
+// each one is from the name of the entry point.
+//
+// The `float` accessors — `nc_put_var_float` and its neighbours — are
+// not here.  `nc_get_var_double` reads a variable of any numeric type,
+// converting as it goes, so a program that reads `NC_FLOAT` data reads
+// it as doubles.  The README's "What is not included" says the rest.
+
+// ---------------------------------------------------------------------
+// The dataset.
+// ---------------------------------------------------------------------
+
+// Create a dataset and write its identifier into a caller-owned slot.
+//
+// `cmode` is 0 to overwrite an existing file, 4 to fail when one
+// exists, and 0x1000 for a netCDF-4 file, which is HDF5 underneath and
+// is what the compression settings need. A new classic dataset starts
+// in define mode.
+pub @ffi(library = "netcdf", symbol = "nc_create")
+fn nc_create(path: Str, cmode: Int, ncidp: Int) -> Int [io, ffi]
+
+// Open an existing dataset and write its identifier into a slot.
+//
+// `omode` is 0 for reading and 1 for reading and writing. The format is
+// detected from the file rather than named here.
+pub @ffi(library = "netcdf", symbol = "nc_open")
+fn nc_open(path: Str, omode: Int, ncidp: Int) -> Int [io, ffi]
+
+// Close a dataset, writing out everything still buffered.
+//
+// A dataset that is not closed may be missing its last writes. Closing
+// leaves define mode if the dataset is still in it.
+pub @ffi(library = "netcdf", symbol = "nc_close")
+fn nc_close(ncid: Int) -> Int [io, ffi]
+
+// Write everything buffered for a dataset out to disk, leaving it open.
+pub @ffi(library = "netcdf", symbol = "nc_sync")
+fn nc_sync(ncid: Int) -> Int [io, ffi]
+
+// Enter define mode, where dimensions, variables and attributes may be
+// added.
+//
+// A classic dataset must be in define mode to be given a new dimension
+// or variable, and out of it to be given data. A netCDF-4 dataset does
+// not need the call, and accepts it.
+pub @ffi(library = "netcdf", symbol = "nc_redef")
+fn nc_redef(ncid: Int) -> Int [io, ffi]
+
+// Leave define mode, fixing the shape of the dataset.
+//
+// For a classic dataset this is where the file's layout is written and
+// where a definition that does not fit is rejected.
+pub @ffi(library = "netcdf", symbol = "nc_enddef")
+fn nc_enddef(ncid: Int) -> Int [io, ffi]
+
+// Read the four counts that describe a dataset into caller-owned slots.
+//
+// `ndimsp`, `nvarsp` and `nattsp` receive the number of dimensions, of
+// variables and of the dataset's own attributes. `unlimdimidp` receives
+// the identifier of the unlimited dimension, or -1 when there is none.
+// Any of the four may be 0 to skip it.
+pub @ffi(library = "netcdf", symbol = "nc_inq")
+fn nc_inq(ncid: Int, ndimsp: Int, nvarsp: Int, nattsp: Int, unlimdimidp: Int) -> Int [io, ffi]
+
+// Read which format a dataset is stored in into a caller-owned slot.
+//
+// 1 is the classic format, 2 the 64-bit offset variant, 3 netCDF-4 and
+// 4 netCDF-4 restricted to the classic data model.
+pub @ffi(library = "netcdf", symbol = "nc_inq_format")
+fn nc_inq_format(ncid: Int, formatp: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// The dimensions.
+// ---------------------------------------------------------------------
+
+// Define a dimension and write its identifier into a caller-owned slot.
+//
+// `len` is the number of elements along it, and 0 makes it the
+// unlimited dimension, which grows as data is written. A classic
+// dataset has at most one unlimited dimension and it must be the first
+// of a variable's dimensions.
+pub @ffi(library = "netcdf", symbol = "nc_def_dim")
+fn nc_def_dim(ncid: Int, name: Str, len: Int, idp: Int) -> Int [io, ffi]
+
+// Find a dimension by name and write its identifier into a slot.
+pub @ffi(library = "netcdf", symbol = "nc_inq_dimid")
+fn nc_inq_dimid(ncid: Int, name: Str, idp: Int) -> Int [io, ffi]
+
+// Read the current length of a dimension into a caller-owned slot.
+//
+// `lenp` is the address of an eight-byte slot. For the unlimited
+// dimension the answer is how far the data written so far reaches.
+pub @ffi(library = "netcdf", symbol = "nc_inq_dimlen")
+fn nc_inq_dimlen(ncid: Int, dimid: Int, lenp: Int) -> Int [io, ffi]
+
+// Read a dimension's name into a caller-owned buffer.
+//
+// The buffer must hold at least `NC_MAX_NAME + 1` bytes, which is 257.
+// The name is written with a terminating zero, so `ptr.read_str` reads
+// it back.
+pub @ffi(library = "netcdf", symbol = "nc_inq_dimname")
+fn nc_inq_dimname(ncid: Int, dimid: Int, name: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// The variables.
+// ---------------------------------------------------------------------
+
+// Define a variable and write its identifier into a caller-owned slot.
+//
+// `xtype` is the element type: 2 is text, 4 a four-byte integer, 5 a
+// four-byte float and 6 an eight-byte float. `ndims` is how many
+// dimensions it has and `dimidsp` is the address of that many
+// four-byte dimension identifiers, outermost first. A variable of no
+// dimensions holds one element.
+pub @ffi(library = "netcdf", symbol = "nc_def_var")
+fn nc_def_var(ncid: Int, name: Str, xtype: Int, ndims: Int, dimidsp: Int,
+              varidp: Int) -> Int [io, ffi]
+
+// Find a variable by name and write its identifier into a slot.
+pub @ffi(library = "netcdf", symbol = "nc_inq_varid")
+fn nc_inq_varid(ncid: Int, name: Str, varidp: Int) -> Int [io, ffi]
+
+// Read a variable's name into a caller-owned buffer of 257 bytes.
+pub @ffi(library = "netcdf", symbol = "nc_inq_varname")
+fn nc_inq_varname(ncid: Int, varid: Int, name: Int) -> Int [io, ffi]
+
+// Read a variable's element type into a caller-owned slot.
+//
+// The answer is an `nc_type`, which is a C `int`.
+pub @ffi(library = "netcdf", symbol = "nc_inq_vartype")
+fn nc_inq_vartype(ncid: Int, varid: Int, xtypep: Int) -> Int [io, ffi]
+
+// Read how many dimensions a variable has into a caller-owned slot.
+pub @ffi(library = "netcdf", symbol = "nc_inq_varndims")
+fn nc_inq_varndims(ncid: Int, varid: Int, ndimsp: Int) -> Int [io, ffi]
+
+// Read a variable's dimension identifiers into a caller-owned buffer.
+//
+// The buffer holds one four-byte identifier per dimension, and
+// `nc_inq_varndims` says how many that is.
+pub @ffi(library = "netcdf", symbol = "nc_inq_vardimid")
+fn nc_inq_vardimid(ncid: Int, varid: Int, dimidsp: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// The data: a whole variable, and a rectangular slice of one.
+// ---------------------------------------------------------------------
+
+// Write the whole of a variable from eight-byte floats at `op`.
+//
+// The library converts from a double to whatever the variable's own
+// type is, and answers a range error when a value does not fit.
+pub @ffi(library = "netcdf", symbol = "nc_put_var_double")
+fn nc_put_var_double(ncid: Int, varid: Int, op: Int) -> Int [io, ffi]
+
+// Read the whole of a variable into eight-byte floats at `ip`.
+//
+// The library converts from the variable's own type, so this reads a
+// variable of any numeric type.
+pub @ffi(library = "netcdf", symbol = "nc_get_var_double")
+fn nc_get_var_double(ncid: Int, varid: Int, ip: Int) -> Int [io, ffi]
+
+// Write the whole of a variable from four-byte integers at `op`.
+pub @ffi(library = "netcdf", symbol = "nc_put_var_int")
+fn nc_put_var_int(ncid: Int, varid: Int, op: Int) -> Int [io, ffi]
+
+// Read the whole of a variable into four-byte integers at `ip`.
+pub @ffi(library = "netcdf", symbol = "nc_get_var_int")
+fn nc_get_var_int(ncid: Int, varid: Int, ip: Int) -> Int [io, ffi]
+
+// Write the whole of a variable from bytes at `op`.
+//
+// The variable's type must be 2, `NC_CHAR`. A text variable is how a
+// classic dataset carries a string: the last dimension is its length.
+pub @ffi(library = "netcdf", symbol = "nc_put_var_text")
+fn nc_put_var_text(ncid: Int, varid: Int, op: Int) -> Int [io, ffi]
+
+// Read the whole of a text variable into bytes at `ip`.
+//
+// No terminating zero is written, because the length is the
+// dimension's. Read the bytes back with `ptr.read_bytes_n`.
+pub @ffi(library = "netcdf", symbol = "nc_get_var_text")
+fn nc_get_var_text(ncid: Int, varid: Int, ip: Int) -> Int [io, ffi]
+
+// Write a rectangular slice of a variable from eight-byte floats.
+//
+// `startp` and `countp` are each the address of one eight-byte count
+// per dimension: the corner to start at and how many elements to take
+// along each. Writing past the end of the unlimited dimension extends
+// it.
+pub @ffi(library = "netcdf", symbol = "nc_put_vara_double")
+fn nc_put_vara_double(ncid: Int, varid: Int, startp: Int, countp: Int, op: Int) -> Int [io, ffi]
+
+// Read a rectangular slice of a variable into eight-byte floats.
+pub @ffi(library = "netcdf", symbol = "nc_get_vara_double")
+fn nc_get_vara_double(ncid: Int, varid: Int, startp: Int, countp: Int, ip: Int) -> Int [io, ffi]
+
+// Write a rectangular slice of a variable from four-byte integers.
+pub @ffi(library = "netcdf", symbol = "nc_put_vara_int")
+fn nc_put_vara_int(ncid: Int, varid: Int, startp: Int, countp: Int, op: Int) -> Int [io, ffi]
+
+// Read a rectangular slice of a variable into four-byte integers.
+pub @ffi(library = "netcdf", symbol = "nc_get_vara_int")
+fn nc_get_vara_int(ncid: Int, varid: Int, startp: Int, countp: Int, ip: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// The attributes.
+// ---------------------------------------------------------------------
+
+// Write a text attribute of `len` bytes from `op`.
+//
+// `varid` is the variable the attribute belongs to, or -1 for
+// `NC_GLOBAL`, which is the dataset itself. The bytes are stored as
+// they are, with no terminating zero.
+pub @ffi(library = "netcdf", symbol = "nc_put_att_text")
+fn nc_put_att_text(ncid: Int, varid: Int, name: Str, len: Int, op: Int) -> Int [io, ffi]
+
+// Read a text attribute into a caller-owned buffer.
+//
+// `nc_inq_att` gives the length, which is how many bytes the buffer
+// must hold. No terminating zero is written.
+pub @ffi(library = "netcdf", symbol = "nc_get_att_text")
+fn nc_get_att_text(ncid: Int, varid: Int, name: Str, ip: Int) -> Int [io, ffi]
+
+// Write a numeric attribute of `len` elements from eight-byte floats.
+//
+// `xtype` is the type the attribute is stored as, and the library
+// converts from the doubles at `op` on the way in.
+pub @ffi(library = "netcdf", symbol = "nc_put_att_double")
+fn nc_put_att_double(ncid: Int, varid: Int, name: Str, xtype: Int, len: Int,
+                     op: Int) -> Int [io, ffi]
+
+// Read a numeric attribute into eight-byte floats at `ip`.
+pub @ffi(library = "netcdf", symbol = "nc_get_att_double")
+fn nc_get_att_double(ncid: Int, varid: Int, name: Str, ip: Int) -> Int [io, ffi]
+
+// Write a numeric attribute of `len` elements from four-byte integers.
+pub @ffi(library = "netcdf", symbol = "nc_put_att_int")
+fn nc_put_att_int(ncid: Int, varid: Int, name: Str, xtype: Int, len: Int, op: Int) -> Int [io, ffi]
+
+// Read a numeric attribute into four-byte integers at `ip`.
+pub @ffi(library = "netcdf", symbol = "nc_get_att_int")
+fn nc_get_att_int(ncid: Int, varid: Int, name: Str, ip: Int) -> Int [io, ffi]
+
+// Read an attribute's type and length into caller-owned slots.
+//
+// `xtypep` receives a four-byte `nc_type` and `lenp` an eight-byte
+// count of elements. For a text attribute the count is the number of
+// bytes. Either may be 0 to skip it.
+pub @ffi(library = "netcdf", symbol = "nc_inq_att")
+fn nc_inq_att(ncid: Int, varid: Int, name: Str, xtypep: Int, lenp: Int) -> Int [io, ffi]
+
+// Read the name of the `attnum`th attribute into a 257-byte buffer.
+//
+// Attributes are numbered from zero, and this is how a program lists
+// the attributes of a variable it did not write.
+pub @ffi(library = "netcdf", symbol = "nc_inq_attname")
+fn nc_inq_attname(ncid: Int, varid: Int, attnum: Int, name: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// The netCDF-4 storage settings.
+// ---------------------------------------------------------------------
+
+// Set the compression of a variable in a netCDF-4 dataset.
+//
+// `shuffle` is 1 to reorder the bytes of each element before
+// compressing, which helps a run of similar numbers. `deflate` is 1 to
+// compress and `deflate_level` is 0 to 9. The call must come while the
+// dataset is in define mode and before any data is written, and it
+// fails on a classic dataset.
+pub @ffi(library = "netcdf", symbol = "nc_def_var_deflate")
+fn nc_def_var_deflate(ncid: Int, varid: Int, shuffle: Int, deflate: Int,
+                      deflate_level: Int) -> Int [io, ffi]
+
+// Set how a variable is laid out in a netCDF-4 dataset.
+//
+// `storage` is 0 for one contiguous run and 1 for chunks.
+// `chunksizesp` is the address of one eight-byte count per dimension
+// giving the shape of a chunk, and it is ignored for contiguous
+// storage. A compressed variable must be chunked, and setting the
+// compression chooses a chunk shape when this call has not.
+pub @ffi(library = "netcdf", symbol = "nc_def_var_chunking")
+fn nc_def_var_chunking(ncid: Int, varid: Int, storage: Int, chunksizesp: Int) -> Int [io, ffi]
+
+// ---------------------------------------------------------------------
+// Errors and version.
+// ---------------------------------------------------------------------
+
+// Turn a status into a sentence.
+//
+// Answers the address of a C string the library owns. Read it with
+// `ptr.read_str` and do not free it. A status of 0 answers
+// "No error".
+pub @ffi(library = "netcdf", symbol = "nc_strerror")
+fn nc_strerror(ncerr: Int) -> Int [ffi]
+
+// Get the library's version.
+//
+// Answers the address of a C string the library owns, such as
+// `4.9.2 of Mar 14 2023 12:00:00 $`.
+pub @ffi(library = "netcdf", symbol = "nc_inq_libvers")
+fn nc_inq_libvers() -> Int [ffi]

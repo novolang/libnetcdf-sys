@@ -1,0 +1,44 @@
+[package]
+name        = "libnetcdf-sys"
+version     = "0.1.0"
+description = "Bindings over libnetcdf, the NetCDF-C library: the dataset and its define mode, the dimensions, the variables, the whole-array and slice accessors for doubles, integers and text, the attributes, the netCDF-4 compression settings and the error strings, one declaration per C entry point."
+license     = "Apache-2.0"
+
+# NOT a `0.0.x` draft.  An interface release is the shape whose every
+# `pub fn` body is a `todo()`, and every `pub fn` here is an `@ffi`
+# declaration with no body at all — `novo pkg publish` reads that as a
+# release with bodies and refuses a `0.0.x` version for it.
+stability   = "experimental"
+
+# `sys`: the layer for a package that binds one C library and decides
+# nothing of its own.  Every `pub fn` below is an `@ffi` declaration of
+# a function in libnetcdf.
+layer       = "sys"
+
+category    = "bindings"
+
+# The one C library.  `libnetcdf.so` is what the loader resolves these
+# symbols against; installing this package does not install it.  A
+# netCDF-4 build of it links against libhdf5 in turn, which the loader
+# resolves for itself.
+wraps       = "libnetcdf"
+
+tags        = ["ffi", "netcdf", "scientific-data", "file-format", "climate", "bindings"]
+repository  = "https://github.com/novolang/libnetcdf-sys"
+maintainers = ["novo-lang"]
+novo        = ">= 0.8.9"
+
+[docs.pages]
+"README.md" = "The C entry points of libnetcdf, one novo-lang declaration each"
+
+[dependencies]
+# None.  A binding over one C library depends on no novo-lang package.
+
+# The link flag for the `library = "netcdf"` name every declaration in
+# `src/` carries.  `libnetcdf-dev` installs
+# `/usr/lib/<arch>/pkgconfig/netcdf.pc`, so pkg-config answers
+# `-lnetcdf` on Debian and Ubuntu.  Without the block the default is
+# `-lnetcdf`, which is the same flag on a system that put the library
+# somewhere the linker already looks.
+[ffi.netcdf]
+pkg_config = "netcdf"
