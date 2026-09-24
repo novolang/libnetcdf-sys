@@ -9,17 +9,12 @@ without reading the rest. The format and the library are documented in
 This package declares forty of that library's entry points to
 novo-lang, one declaration each.
 
-**Status: a binding, not a port.** Every function in this package is a
-declaration of a function in libnetcdf. The package contains no logic
-of its own, and it does nothing without the C library installed. The
-forty entry points read and write the classic data model — dimensions,
-variables, attributes — in both the classic and the netCDF-4 file
-formats; the section "What is not included" says what a program still
-cannot do with them alone.
-
-**Unverified.** NetCDF is not installed on the machine where this
-package was written, so the test suite has never been linked. See the
-"Tests" section.
+Every function here is a declaration of a function in libnetcdf. The
+package contains no logic of its own, and it does nothing without the C
+library installed. The forty entry points read and write the classic
+data model, which is dimensions, variables and attributes, in both the
+classic and the netCDF-4 file formats. The section "What is not
+included" says what a program cannot do with them alone.
 
 ## What it is
 
@@ -36,20 +31,21 @@ element type for all of it. A variable over `time` and `depth` has
 8760 by 40 elements. A variable over no dimensions holds exactly one.
 
 An **attribute** is a small named value carried beside a variable, or
-beside the dataset itself. `units` is an attribute; so is the range a
+beside the dataset itself. `units` is an attribute. So is the range a
 reader should expect. An attribute attached to the dataset rather than
 to a variable uses the variable identifier -1, which the C header calls
 `NC_GLOBAL`.
 
-A classic dataset has two states. In **define mode** dimensions,
-variables and attributes may be added but no data may be written; out
-of it, the reverse. `nc_enddef` leaves define mode and is where the
+A classic dataset has two states. In **define mode** a dimension, a
+variable or an attribute may be added, and no data may be written. Out
+of define mode data may be written, and a definition is refused with
+`NC_ENOTINDEFINE`. `nc_enddef` leaves define mode and is where the
 layout of the file is decided. A netCDF-4 dataset does not need the
 distinction, and accepts the calls anyway.
 
-There are two **file formats** behind one interface. The classic format
-is NetCDF's own, a header followed by the arrays. The **netCDF-4**
-format is an HDF5 file with a NetCDF layout inside it, and it is what
+There are two **file formats** behind one C API. The classic format is
+NetCDF's own, a header followed by the arrays. The **netCDF-4** format
+is an HDF5 file with a NetCDF layout inside it, and it is what
 compression, chunking and a tree of groups need. A program says which
 one it wants when it creates a file, and never needs to ask again: the
 same calls read both.
@@ -111,10 +107,11 @@ fn main() [io, ffi]
     let _closed = libnetcdf.nc_close(ncid)
 ```
 
-The example is fenced as an illustration rather than a compiled block
-because `novo doc` compiles the blocks in documentation comments and
-not the ones in this file. The same calls are in
-`tests/libnetcdf_tests.nv`.
+The fence reads `novo ignore`, so `novo doc` lists the example and does
+not compile it. A compiled block is linked against libnetcdf, and the
+link fails on a machine where that library is not installed. The
+examples in the declarations' comments are fenced the same way. The
+same calls are in `tests/libnetcdf_tests.nv`.
 
 ## What the package contains
 
@@ -146,34 +143,42 @@ read whole, and the only way to extend an unlimited dimension a piece
 at a time.
 
 `nc_get_var_text` is for a variable of type `NC_CHAR`, which is how a
-classic file carries a string: the last dimension is its length.
+classic file carries a string: the last dimension is its length. The
+same call on a numeric variable is refused with `NC_ECHAR`.
 
 `nc_def_var_chunking` and `nc_def_var_deflate` need a netCDF-4 file,
-which means `nc_create` with the mode 4096. They fail on a classic
-dataset.
+which means `nc_create` with the mode 4096. They answer `NC_ENOTNC4` on
+a classic dataset.
 
-`nc_inq` with four zeros is how a program that knows nothing about a
-file starts: it answers how many dimensions, variables and attributes
-the file has, and the identifiers are 0 upwards in each case.
+`nc_inq` is how a program that knows nothing about a file starts. It
+answers how many dimensions, variables and attributes the file has, and
+each of its four out-parameters may be 0 to skip that one answer. The
+identifiers run from 0 upwards in each case.
 
 ## The rules a user needs
 
-1. **Zero is success and every other status is negative.** The status
-   is a C `int`, so write `as i32` before comparing it with a negative
-   number. `nc_strerror` turns the status into a sentence and answers
-   the address of a C string the library owns; read it with
-   `ptr.read_str` and do not free it.
-2. **An out-parameter for a C `int` is four bytes in an eight-byte
+1. **Zero is success.** `NC_NOERR` is 0. The library's own error codes
+   are negative, and the ones these calls answer run from -33,
+   `NC_EBADID`, down. A positive status is a value from the system's
+   `errno.h`, which the header recognises with `NC_ISSYSERR(err)`,
+   defined as `(err) > 0`. The status is a C `int`, so write `as i32`
+   before comparing it with a negative number.
+2. **`nc_strerror` answers a string the library owns.** It turns any
+   status into a sentence, and a positive one goes to the system's
+   `strerror`. The address is a static one that stays valid while the
+   library is loaded. Read it with `ptr.read_str` and do not free it.
+   `nc_inq_libvers` answers such a string as well.
+3. **An out-parameter for a C `int` is four bytes in an eight-byte
    slot.** `ptr.alloc_word` gives a slot that is zeroed, so
    `ptr.read_word` reads back the four-byte answer. A dimension's
    length and an attribute's element count are a `size_t` and fill the
    whole eight bytes.
-3. **A dataset, a dimension and a variable are each numbered from
-   zero**, in the order they were defined. `nc_inq` gives the counts
-   and the identifiers follow from them.
-4. **`NC_GLOBAL` is -1.** An attribute on the dataset itself is written
+4. **A dimension and a variable are each numbered from zero**, in the
+   order they were defined. `nc_inq` gives the counts and the
+   identifiers follow from them.
+5. **`NC_GLOBAL` is -1.** An attribute on the dataset itself is written
    with that as the variable identifier.
-5. **The type and mode numbers are numbers**, because the C header
+6. **The type and mode numbers are numbers**, because the C header
    spells them as macros.
 
    | Name | Number | What it means |
@@ -193,38 +198,43 @@ the file has, and the identifiers are 0 upwards in each case.
    | `NC_DOUBLE` | 6 | an eight-byte float |
    | `NC_UNLIMITED` | 0 | as a dimension length, the dimension that grows |
    | `NC_GLOBAL` | -1 | as a variable identifier, the dataset itself |
-   | `NC_CONTIGUOUS` | 0 | as a storage setting, one run |
-   | `NC_CHUNKED` | 1 | as a storage setting, chunks |
+   | `NC_CHUNKED` | 0 | as a storage setting, chunks |
+   | `NC_CONTIGUOUS` | 1 | as a storage setting, one run |
 
-6. **The accessor's name says what the caller's buffer holds.** The
+7. **The accessor's name says what the caller's buffer holds.** The
    library converts between it and the variable's own type, and answers
-   a range error when a value does not fit. `nc_get_var_double` on an
+   `NC_ERANGE` when a value does not fit. `nc_get_var_double` on an
    `NC_FLOAT` variable is the ordinary way to read one.
-7. **A data buffer carries no length.** The library moves as many
+8. **A data buffer carries no length.** The library moves as many
    elements as the variable's shape, or the slice's count, implies. Ask
    `nc_inq_dimlen` for the length and multiply by the element width
    before allocating.
-8. **A `start` and a `count` are one eight-byte number per dimension**,
+9. **A `start` and a `count` are one eight-byte number per dimension**,
    outermost first. `ptr.alloc(8 * rank)` reserves either, and
    `ptr.write_word` fills it.
-9. **A name buffer must hold 257 bytes**, which is `NC_MAX_NAME + 1`.
-   `nc_inq_dimname`, `nc_inq_varname` and `nc_inq_attname` write a
-   terminating zero, so `ptr.read_str` reads the answer back.
-10. **A text attribute and a text variable carry no terminating zero.**
-    Their length is the attribute's element count or the dimension's
-    length. Read them with `ptr.read_bytes_n` rather than
+10. **A name buffer must hold 257 bytes**, which is `NC_MAX_NAME + 1`
+    for `NC_MAX_NAME` of 256. `nc_inq_dimname`, `nc_inq_varname` and
+    `nc_inq_attname` write a terminating zero, so `ptr.read_str` reads
+    the answer back.
+11. **A text attribute and a text variable carry no terminating zero of
+    the library's own.** Their length is the attribute's element count
+    or the dimension's length, and a caller who wants a zero stores it
+    as one of the bytes. Read them with `ptr.read_bytes_n` rather than
     `ptr.read_str`.
-11. **A classic dataset must be in define mode to be given a new
+12. **A classic dataset must be in define mode to be given a new
     dimension, variable or attribute.** `nc_create` starts there and
-    `nc_enddef` leaves; `nc_redef` goes back. A netCDF-4 dataset does
+    `nc_enddef` leaves. `nc_redef` goes back. Replacing the value of an
+    attribute that exists is allowed out of define mode while the new
+    value needs no more space than the old one. A netCDF-4 dataset does
     not need the distinction.
-12. **Compression needs chunks and needs netCDF-4.**
-    `nc_def_var_deflate` fails on a classic dataset, and it must be
-    called in define mode before any data is written. A compressed
-    variable is chunked, and the library chooses a chunk shape when
-    `nc_def_var_chunking` has not.
-13. **A dataset that is not closed may be missing its last writes.**
-    `nc_close` writes them out; `nc_sync` does the same and leaves the
+13. **Compression needs chunks and needs netCDF-4.**
+    `nc_def_var_deflate` answers `NC_ENOTNC4` on a classic dataset, and
+    it must be called after the variable is defined and before
+    `nc_enddef`. A compressed variable is chunked, and the library gives
+    a variable stored in one contiguous run a default chunk shape when
+    the compression is set on it.
+14. **A dataset that is not closed may be missing its last writes.**
+    `nc_close` writes them out. `nc_sync` does the same and leaves the
     file open.
 
 ## What is not included
@@ -244,19 +254,19 @@ the file has, and the identifiers are 0 upwards in each case.
 - **The user-defined types.** `nc_def_compound`, `nc_insert_compound`,
   `nc_def_vlen`, `nc_def_enum` and `nc_def_opaque` are netCDF-4's own,
   and a compound type is described by the byte offsets of its members.
-  They are left out of the first release.
+  They are left out of this release.
 - **The groups.** `nc_def_grp` and `nc_inq_grps` give a netCDF-4 file a
   tree rather than a flat list of variables. Every call in this package
   works on the root group, which is the whole of a classic file.
-- **The parallel interface.** `nc_create_par` and `nc_open_par` take an
+- **The parallel I/O calls.** `nc_create_par` and `nc_open_par` take an
   `MPI_Comm` and an `MPI_Info`, which most MPI implementations pass by
   value.
 - **The generic `nc_get_att` and `nc_put_att`.** They take a `void *`
   and the caller's own type number. The three typed pairs say what the
   buffer holds in the name of the call.
 - **`nc_set_fill`.** A variable's own fill value is an attribute named
-  `_FillValue`, which the typed attribute calls reach; the mode switch
-  is left out of the first release.
+  `_FillValue`, which the typed attribute calls reach. The mode switch
+  is left out of this release.
 
 ## Related packages
 
@@ -269,18 +279,18 @@ would be a reader a user could not rely on.
 `libhdf5-sys` binds the library underneath the netCDF-4 format. A
 program that has an HDF5 file rather than a NetCDF one wants that
 package. A program that has a NetCDF file wants this one, whichever
-format it is in: the NetCDF interface is smaller, and it names its
-element types with plain integers where HDF5 names them with global
-variables a binding cannot reach.
+format it is in: the NetCDF C API is smaller, and it names its element
+types with plain integers where HDF5 names them with global variables a
+binding cannot reach.
 
 `dataframe-nv` and `ndarray-nv` are where the arrays go once they are
 read.
 
 ## Tests
 
-`tests/libnetcdf_tests.nv` holds ten tests written against the
-signatures. They call the C library, so `novo test` needs NetCDF
-installed and linkable:
+`tests/libnetcdf_tests.nv` holds ten tests over the forty entry points.
+They call the C library, so `novo test` needs NetCDF installed and
+linkable:
 
 ```
 novo test tests/libnetcdf_tests.nv
@@ -306,27 +316,10 @@ back by number. The last test creates a netCDF-4 file, chunks and
 compresses a variable, writes to it, and asserts that the format the
 file reports is netCDF-4 rather than classic.
 
-**Unverified.** NetCDF is not installed on the staging machine, so the
-suite has never linked: `novo test` stops at `/usr/bin/ld: cannot find
--lnetcdf`. Every assertion above is written from the NetCDF-C reference
-and none of them has been observed to pass.
-
-## Implementation status
-
-| Group | State |
-| --- | --- |
-| Dataset | Complete for the serial interface. |
-| Dimensions | Complete. |
-| Variables | Complete for the classic data model. |
-| Data | Complete for the double, integer and text buffers, whole and by slice. |
-| Attributes | Complete for the three typed pairs. |
-| netCDF-4 storage | Complete for chunking and deflate. |
-| Errors and version | Complete. |
-| Other caller buffer types | Absent. The three here read and write every variable, by conversion. |
-| Strided and mapped access | Absent. Left out of the first release. |
-| User-defined types | Absent. Left out of the first release. |
-| Groups | Absent. Every call works on the root group. |
-| Parallel interface | Absent. It takes an MPI communicator by value. |
+NetCDF is not installed on the machine where this package is written,
+so the suite has never linked. `novo test` stops at `/usr/bin/ld:
+cannot find -lnetcdf`. Every assertion above is written from the
+NetCDF-C reference and none of them has been observed to pass.
 
 ## Licence
 

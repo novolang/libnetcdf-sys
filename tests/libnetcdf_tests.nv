@@ -1,20 +1,22 @@
-// API tests for the NetCDF-C bindings.
+// The tests over the entry points of the NetCDF-C bindings.
 //
 // Every test below calls into the C library, so the suite needs NetCDF
 // installed and linked.  `novo pkg build` type-checks the declarations
-// without it; `novo test` runs them and does not.
+// without it.  `novo test` runs them and does not.
 //
 // Every file the suite writes is made under a fresh directory from
 // `fs.temp_dir` and deleted again, and nothing reaches the network.
 //
-// NetCDF was not installed on the machine where this package was
-// written, so the suite has never been linked.  Treat every assertion
-// below as unmeasured.
+// NetCDF is not installed on the machine where this package is
+// written, so the suite has not linked there and none of the
+// assertions below has been observed to pass.
 
 use std.test
 use libnetcdf
 
-// `NC_NOERR`, and `NC_CLOBBER`, `NC_NOWRITE` and `NC_WRITE`.
+// `NC_NOERR` is the success status.  `NC_CLOBBER` creates a file over
+// any existing one.  `NC_NOWRITE` and `NC_WRITE` open one for reading
+// and for reading and writing.
 const NOERR: Int = 0
 const CLOBBER: Int = 0
 const NOWRITE: Int = 0
@@ -31,8 +33,9 @@ const T_CHAR: Int = 2
 const T_INT: Int = 4
 const T_DOUBLE: Int = 6
 
-// `NC_CHUNKED`.
-const CHUNKED: Int = 1
+// `NC_CHUNKED`, the storage setting that lays a variable out in
+// chunks.
+const CHUNKED: Int = 0
 
 // The length of every numeric variable below.
 const LENGTH: Int = 4
@@ -52,7 +55,7 @@ fn one_count(n: Int) -> Int
 
 // Create a classic dataset holding one dimension of `LENGTH` and one
 // variable of `xtype` over it, left out of define mode.  Answers the
-// dataset identifier; the variable is always the first one, so its
+// dataset identifier.  The variable is always the first one, so its
 // identifier is 0.
 fn one_variable_file(file_path: Str, xtype: Int) -> Int [io, ffi]
     let nc_slot = ptr.alloc_word()
@@ -77,7 +80,7 @@ fn test_the_library_reports_its_version_and_names_a_status() [io, fs, ffi]
     test.case("nc_inq_libvers, nc_strerror")
     test.assert(str.len(ptr.read_str(libnetcdf.nc_inq_libvers())) > 0)
     test.assert(str.len(ptr.read_str(libnetcdf.nc_strerror(NOERR))) > 0)
-    // Every failure is a negative number, and each has a sentence.
+    // `NC_EBADID` is -33, and the library has a sentence for it too.
     test.assert(str.len(ptr.read_str(libnetcdf.nc_strerror(0 - 33))) > 0)
 
 // A dataset is created, closed, reopened, counted and flushed.
@@ -86,27 +89,27 @@ fn test_a_dataset_is_created_reopened_and_counted() [io, fs, ffi]
     test.case("nc_create, nc_enddef, nc_close, nc_open, nc_inq, nc_inq_format, nc_sync")
     let file_path = scratch_file("empty.nc")
     let nc_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_create(file_path, CLOBBER, nc_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_create(file_path, CLOBBER, nc_slot) as i32) == NOERR)
     let ncid = ptr.read_word(nc_slot)
-    test.assert(libnetcdf.nc_enddef(ncid) as i32 == NOERR)
-    test.assert(libnetcdf.nc_sync(ncid) as i32 == NOERR)
-    test.assert(libnetcdf.nc_close(ncid) as i32 == NOERR)
+    test.assert((libnetcdf.nc_enddef(ncid) as i32) == NOERR)
+    test.assert((libnetcdf.nc_sync(ncid) as i32) == NOERR)
+    test.assert((libnetcdf.nc_close(ncid) as i32) == NOERR)
 
-    test.assert(libnetcdf.nc_open(file_path, NOWRITE, nc_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_open(file_path, NOWRITE, nc_slot) as i32) == NOERR)
     let back = ptr.read_word(nc_slot)
     let ndims = ptr.alloc_word()
     let nvars = ptr.alloc_word()
     let natts = ptr.alloc_word()
     let unlim = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq(back, ndims, nvars, natts, unlim) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq(back, ndims, nvars, natts, unlim) as i32) == NOERR)
     test.assert(ptr.read_word(ndims) == 0)
     test.assert(ptr.read_word(nvars) == 0)
     test.assert(ptr.read_word(natts) == 0)
     let format = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_format(back, format) as i32 == NOERR)
-    // 1 is the classic format, which is what NC_CLOBBER alone gives.
+    test.assert((libnetcdf.nc_inq_format(back, format) as i32) == NOERR)
+    // 1 is the classic format, which is what `NC_CLOBBER` alone gives.
     test.assert(ptr.read_word(format) == 1)
-    test.assert(libnetcdf.nc_close(back) as i32 == NOERR)
+    test.assert((libnetcdf.nc_close(back) as i32) == NOERR)
     ptr.free(format)
     ptr.free(unlim)
     ptr.free(natts)
@@ -123,13 +126,13 @@ fn test_a_dimension_is_defined_and_described() [io, fs, ffi]
     let file_path = scratch_file("dims.nc")
     let ncid = one_variable_file(file_path, T_DOUBLE)
     let id_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_dimid(ncid, "n", id_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_dimid(ncid, "n", id_slot) as i32) == NOERR)
     let dimid = ptr.read_word(id_slot)
     let len_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_dimlen(ncid, dimid, len_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_dimlen(ncid, dimid, len_slot) as i32) == NOERR)
     test.assert(ptr.read_word(len_slot) == LENGTH)
     let name = ptr.alloc(NAME_BYTES)
-    test.assert(libnetcdf.nc_inq_dimname(ncid, dimid, name) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_dimname(ncid, dimid, name) as i32) == NOERR)
     test.assert(ptr.read_str(name) == "n")
     let _closed = libnetcdf.nc_close(ncid)
     ptr.free(name)
@@ -144,20 +147,20 @@ fn test_a_variable_describes_itself() [io, fs, ffi]
     let file_path = scratch_file("vars.nc")
     let ncid = one_variable_file(file_path, T_DOUBLE)
     let var_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_varid(ncid, "values", var_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_varid(ncid, "values", var_slot) as i32) == NOERR)
     let varid = ptr.read_word(var_slot)
     let name = ptr.alloc(NAME_BYTES)
-    test.assert(libnetcdf.nc_inq_varname(ncid, varid, name) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_varname(ncid, varid, name) as i32) == NOERR)
     test.assert(ptr.read_str(name) == "values")
     let xtype = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_vartype(ncid, varid, xtype) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_vartype(ncid, varid, xtype) as i32) == NOERR)
     test.assert(ptr.read_word(xtype) == T_DOUBLE)
     let ndims = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_varndims(ncid, varid, ndims) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_varndims(ncid, varid, ndims) as i32) == NOERR)
     test.assert(ptr.read_word(ndims) == 1)
     // One four-byte dimension identifier, and it is the only dimension.
     let dimids = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_vardimid(ncid, varid, dimids) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_vardimid(ncid, varid, dimids) as i32) == NOERR)
     test.assert(ptr.read_word(dimids) == 0)
     let _closed = libnetcdf.nc_close(ncid)
     ptr.free(dimids)
@@ -176,9 +179,9 @@ fn test_a_double_variable_round_trips() [io, fs, ffi]
     let out = ptr.alloc(LENGTH * 8)
     for i in 0..LENGTH
         ptr.write_word(out + i * 8, float.to_bits(int.to_float(i) + 0.5))
-    test.assert(libnetcdf.nc_put_var_double(ncid, 0, out) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_var_double(ncid, 0, out) as i32) == NOERR)
     let back = ptr.alloc(LENGTH * 8)
-    test.assert(libnetcdf.nc_get_var_double(ncid, 0, back) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_var_double(ncid, 0, back) as i32) == NOERR)
     test.assert(float.from_bits(ptr.read_word(back)) == 0.5)
     test.assert(float.from_bits(ptr.read_word(back + 24)) == 3.5)
     let _closed = libnetcdf.nc_close(ncid)
@@ -196,19 +199,19 @@ fn test_an_integer_variable_is_read_back_as_both_types() [io, fs, ffi]
     let out = ptr.alloc(LENGTH * 4)
     for i in 0..LENGTH
         ptr.write_i32(out + i * 4, i + 10)
-    test.assert(libnetcdf.nc_put_var_int(ncid, 0, out) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_var_int(ncid, 0, out) as i32) == NOERR)
     // An eight-byte slot is zeroed, so reading the whole word back
     // reads the four-byte integer written into its low half.
     let one = ptr.alloc_word()
     let start = one_count(0)
     let count = one_count(1)
-    test.assert(libnetcdf.nc_get_vara_int(ncid, 0, start, count, one) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_vara_int(ncid, 0, start, count, one) as i32) == NOERR)
     test.assert(ptr.read_word(one) == 10)
     let back = ptr.alloc(LENGTH * 4)
-    test.assert(libnetcdf.nc_get_var_int(ncid, 0, back) as i32 == NOERR)
-    // The same variable read as doubles: the library converts.
+    test.assert((libnetcdf.nc_get_var_int(ncid, 0, back) as i32) == NOERR)
+    // The same variable read as doubles.  The library converts.
     let as_doubles = ptr.alloc(LENGTH * 8)
-    test.assert(libnetcdf.nc_get_var_double(ncid, 0, as_doubles) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_var_double(ncid, 0, as_doubles) as i32) == NOERR)
     test.assert(float.from_bits(ptr.read_word(as_doubles)) == 10.0)
     test.assert(float.from_bits(ptr.read_word(as_doubles + 24)) == 13.0)
     let _closed = libnetcdf.nc_close(ncid)
@@ -229,9 +232,9 @@ fn test_a_text_variable_round_trips() [io, fs, ffi]
     let ncid = one_variable_file(file_path, T_CHAR)
     let out = ptr.alloc(LENGTH)
     let _written = ptr.write_bytes_buf(out, bytes.from_str("m/s2"))
-    test.assert(libnetcdf.nc_put_var_text(ncid, 0, out) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_var_text(ncid, 0, out) as i32) == NOERR)
     let back = ptr.alloc(LENGTH)
-    test.assert(libnetcdf.nc_get_var_text(ncid, 0, back) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_var_text(ncid, 0, back) as i32) == NOERR)
     test.assert(bytes.to_str(ptr.read_bytes_n(back, LENGTH)) == "m/s2")
     let _closed = libnetcdf.nc_close(ncid)
     ptr.free(back)
@@ -256,9 +259,9 @@ fn test_a_slice_is_written_and_read_on_its_own() [io, fs, ffi]
     let slice = ptr.alloc(2 * 8)
     ptr.write_word(slice, float.to_bits(7.0))
     ptr.write_word(slice + 8, float.to_bits(8.0))
-    test.assert(libnetcdf.nc_put_vara_double(ncid, 0, start, count, slice) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_vara_double(ncid, 0, start, count, slice) as i32) == NOERR)
     let seen = ptr.alloc(2 * 8)
-    test.assert(libnetcdf.nc_get_vara_double(ncid, 0, start, count, seen) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_vara_double(ncid, 0, start, count, seen) as i32) == NOERR)
     test.assert(float.from_bits(ptr.read_word(seen)) == 7.0)
     test.assert(float.from_bits(ptr.read_word(seen + 8)) == 8.0)
     // The first element was not in the slice and is still zero.
@@ -271,7 +274,7 @@ fn test_a_slice_is_written_and_read_on_its_own() [io, fs, ffi]
     let ints = ptr.alloc(2 * 4)
     ptr.write_i32(ints, 1)
     ptr.write_i32(ints + 4, 2)
-    test.assert(libnetcdf.nc_put_vara_int(ncid, 0, start, count, ints) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_vara_int(ncid, 0, start, count, ints) as i32) == NOERR)
 
     let _closed = libnetcdf.nc_close(ncid)
     ptr.free(ints)
@@ -297,33 +300,33 @@ fn test_attributes_round_trip_and_are_listed() [io, fs, ffi]
 
     let text = ptr.alloc(LENGTH)
     let _written = ptr.write_bytes_buf(text, bytes.from_str("m/s2"))
-    test.assert(libnetcdf.nc_put_att_text(ncid, GLOBAL, "units", LENGTH, text) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_att_text(ncid, GLOBAL, "units", LENGTH, text) as i32) == NOERR)
     let number = ptr.alloc(8)
     ptr.write_word(number, float.to_bits(9.81))
-    test.assert(libnetcdf.nc_put_att_double(ncid, GLOBAL, "g", T_DOUBLE, 1, number) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_att_double(ncid, GLOBAL, "g", T_DOUBLE, 1, number) as i32) == NOERR)
     let counted = ptr.alloc(4)
     ptr.write_i32(counted, 3)
-    test.assert(libnetcdf.nc_put_att_int(ncid, GLOBAL, "runs", T_INT, 1, counted) as i32 == NOERR)
-    test.assert(libnetcdf.nc_enddef(ncid) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_att_int(ncid, GLOBAL, "runs", T_INT, 1, counted) as i32) == NOERR)
+    test.assert((libnetcdf.nc_enddef(ncid) as i32) == NOERR)
 
     // The type and the length come back before the value does.
     let xtype = ptr.alloc_word()
     let len_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_att(ncid, GLOBAL, "units", xtype, len_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_att(ncid, GLOBAL, "units", xtype, len_slot) as i32) == NOERR)
     test.assert(ptr.read_word(xtype) == T_CHAR)
     test.assert(ptr.read_word(len_slot) == LENGTH)
     let seen_text = ptr.alloc(LENGTH)
-    test.assert(libnetcdf.nc_get_att_text(ncid, GLOBAL, "units", seen_text) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_att_text(ncid, GLOBAL, "units", seen_text) as i32) == NOERR)
     test.assert(bytes.to_str(ptr.read_bytes_n(seen_text, LENGTH)) == "m/s2")
     let seen_number = ptr.alloc(8)
-    test.assert(libnetcdf.nc_get_att_double(ncid, GLOBAL, "g", seen_number) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_att_double(ncid, GLOBAL, "g", seen_number) as i32) == NOERR)
     test.assert(float.from_bits(ptr.read_word(seen_number)) == 9.81)
     let seen_count = ptr.alloc_word()
-    test.assert(libnetcdf.nc_get_att_int(ncid, GLOBAL, "runs", seen_count) as i32 == NOERR)
+    test.assert((libnetcdf.nc_get_att_int(ncid, GLOBAL, "runs", seen_count) as i32) == NOERR)
     test.assert(ptr.read_word(seen_count) == 3)
     // Attributes are numbered from zero, in the order they were made.
     let name = ptr.alloc(NAME_BYTES)
-    test.assert(libnetcdf.nc_inq_attname(ncid, GLOBAL, 0, name) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_attname(ncid, GLOBAL, 0, name) as i32) == NOERR)
     test.assert(ptr.read_str(name) == "units")
 
     let _closed = libnetcdf.nc_close(ncid)
@@ -346,35 +349,35 @@ fn test_a_netcdf4_variable_is_chunked_and_compressed() [io, fs, ffi]
     test.case("nc_redef, nc_def_var_chunking, nc_def_var_deflate")
     let file_path = scratch_file("compressed.nc")
     let nc_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_create(file_path, NETCDF4, nc_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_create(file_path, NETCDF4, nc_slot) as i32) == NOERR)
     let ncid = ptr.read_word(nc_slot)
     let dim_slot = ptr.alloc_word()
     let _dim = libnetcdf.nc_def_dim(ncid, "n", LENGTH, dim_slot)
     let dims = ptr.alloc(4)
     ptr.write_i32(dims, ptr.read_word(dim_slot))
     let var_slot = ptr.alloc_word()
-    test.assert(libnetcdf.nc_def_var(ncid, "values", T_DOUBLE, 1, dims, var_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_def_var(ncid, "values", T_DOUBLE, 1, dims, var_slot) as i32) == NOERR)
     let varid = ptr.read_word(var_slot)
     // A compressed variable must be chunked, so the shape comes first.
     let chunks = one_count(2)
-    test.assert(libnetcdf.nc_def_var_chunking(ncid, varid, CHUNKED, chunks) as i32 == NOERR)
+    test.assert((libnetcdf.nc_def_var_chunking(ncid, varid, CHUNKED, chunks) as i32) == NOERR)
     // Shuffle on, deflate on, level 4.
-    test.assert(libnetcdf.nc_def_var_deflate(ncid, varid, 1, 1, 4) as i32 == NOERR)
-    test.assert(libnetcdf.nc_enddef(ncid) as i32 == NOERR)
+    test.assert((libnetcdf.nc_def_var_deflate(ncid, varid, 1, 1, 4) as i32) == NOERR)
+    test.assert((libnetcdf.nc_enddef(ncid) as i32) == NOERR)
     let out = ptr.alloc(LENGTH * 8)
     for i in 0..LENGTH
         ptr.write_word(out + i * 8, float.to_bits(int.to_float(i)))
-    test.assert(libnetcdf.nc_put_var_double(ncid, varid, out) as i32 == NOERR)
+    test.assert((libnetcdf.nc_put_var_double(ncid, varid, out) as i32) == NOERR)
     // Define mode can be re-entered on a netCDF-4 dataset.
-    test.assert(libnetcdf.nc_redef(ncid) as i32 == NOERR)
-    test.assert(libnetcdf.nc_enddef(ncid) as i32 == NOERR)
-    test.assert(libnetcdf.nc_close(ncid) as i32 == NOERR)
+    test.assert((libnetcdf.nc_redef(ncid) as i32) == NOERR)
+    test.assert((libnetcdf.nc_enddef(ncid) as i32) == NOERR)
+    test.assert((libnetcdf.nc_close(ncid) as i32) == NOERR)
 
     // The format the file reports is netCDF-4 rather than classic.
-    test.assert(libnetcdf.nc_open(file_path, WRITE, nc_slot) as i32 == NOERR)
+    test.assert((libnetcdf.nc_open(file_path, WRITE, nc_slot) as i32) == NOERR)
     let back = ptr.read_word(nc_slot)
     let format = ptr.alloc_word()
-    test.assert(libnetcdf.nc_inq_format(back, format) as i32 == NOERR)
+    test.assert((libnetcdf.nc_inq_format(back, format) as i32) == NOERR)
     test.assert(ptr.read_word(format) == 3)
     let _closed = libnetcdf.nc_close(back)
     ptr.free(format)
