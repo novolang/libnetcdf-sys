@@ -1,6 +1,6 @@
 [package]
 name        = "libnetcdf-sys"
-version     = "0.1.1"
+version     = "0.1.2"
 description = "Bindings over libnetcdf, the NetCDF-C library: the dataset and its define mode, the dimensions, the variables, the whole-array and slice accessors for doubles, integers and text, the attributes, the netCDF-4 compression settings and the error strings, one declaration per C entry point."
 license     = "Apache-2.0"
 
@@ -25,7 +25,7 @@ wraps       = "libnetcdf"
 tags        = ["ffi", "netcdf", "scientific-data", "file-format", "climate", "bindings"]
 repository  = "https://github.com/novolang/libnetcdf-sys"
 maintainers = ["novo-lang"]
-novo        = ">= 0.8.9"
+novo        = ">= 0.23.0"
 
 [docs.pages]
 "README.md" = "The C entry points of libnetcdf, one novo-lang declaration each"
